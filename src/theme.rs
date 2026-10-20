@@ -13,7 +13,11 @@ use eframe::egui::{
 };
 use serde_json::Value;
 
-const DMS_FONTS: &str = "/usr/share/quickshell/dms/DankCommon/assets/fonts";
+/// DMS 2.0 renamed DankCommon to DCommon; older installs still use the old name.
+const DMS_FONT_DIRS: [&str; 2] = [
+    "/usr/share/quickshell/dms/DCommon/assets/fonts",
+    "/usr/share/quickshell/dms/DankCommon/assets/fonts",
+];
 static ICONS_OK: AtomicBool = AtomicBool::new(false);
 
 /// Material Symbols codepoints.
@@ -232,6 +236,11 @@ fn system_font(family: &str, bold: bool) -> Option<Vec<u8>> {
     fs::read(path.trim()).ok()
 }
 
+/// Reads a font file from the first DMS fonts directory that has it.
+fn dms_font(relative: &str) -> Option<Vec<u8>> {
+    DMS_FONT_DIRS.iter().find_map(|dir| fs::read(format!("{dir}/{relative}")).ok())
+}
+
 /// Inter and Material Symbols come from the DMS install, Noto Sans from fontconfig.
 /// Anything missing falls back to egui's built-in fonts.
 pub fn install_fonts(ctx: &egui::Context) {
@@ -243,7 +252,7 @@ pub fn install_fonts(ctx: &egui::Context) {
     };
 
     let mut body = Vec::new();
-    if let Ok(bytes) = fs::read(format!("{DMS_FONTS}/inter/InterVariable.ttf")) {
+    if let Some(bytes) = dms_font("inter/InterVariable.ttf") {
         add(&mut fonts, "inter", bytes);
         body.push("inter".to_owned());
     }
@@ -256,16 +265,11 @@ pub fn install_fonts(ctx: &egui::Context) {
         add(&mut fonts, "noto-sans-bold", bytes);
         bold.push("noto-sans-bold".to_owned());
     }
-    let icons_path =
-        format!("{DMS_FONTS}/material-design-icons/variablefont/MaterialSymbolsRounded[FILL,GRAD,opsz,wght].ttf");
-    let icons = match fs::read(&icons_path) {
-        Ok(bytes) => {
-            add(&mut fonts, "material-symbols", bytes);
-            ICONS_OK.store(true, Ordering::Relaxed);
-            Some(vec!["material-symbols".to_owned()])
-        }
-        Err(_) => None,
-    };
+    let icons = dms_font("material-design-icons/variablefont/MaterialSymbolsRounded[FILL,GRAD,opsz,wght].ttf").map(|bytes| {
+        add(&mut fonts, "material-symbols", bytes);
+        ICONS_OK.store(true, Ordering::Relaxed);
+        vec!["material-symbols".to_owned()]
+    });
 
     let proportional = fonts.families.entry(FontFamily::Proportional).or_default();
     for (i, name) in body.into_iter().enumerate() {

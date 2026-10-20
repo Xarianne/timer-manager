@@ -334,6 +334,17 @@ pub fn card<R>(ui: &mut Ui, p: &Palette, add: impl FnOnce(&mut Ui) -> R) -> R {
         .inner
 }
 
+/// A small rounded badge.
+pub fn pill(ui: &mut Ui, p: &Palette, text: &str) {
+    egui::Frame::new()
+        .fill(p.primary_container)
+        .corner_radius(CornerRadius::same(255))
+        .inner_margin(egui::Margin::symmetric(9, 2))
+        .show(ui, |ui| {
+            ui.label(RichText::new(text).small().color(p.on_primary_container));
+        });
+}
+
 pub fn section_header(ui: &mut Ui, p: &Palette, glyph: char, title: &str) {
     ui.horizontal(|ui| {
         ui.label(icon(glyph, 20.0).color(p.primary));

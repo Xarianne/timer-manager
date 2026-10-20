@@ -321,6 +321,9 @@ impl App {
                     ui.horizontal(|ui| {
                         ui.label(icon(icon::SCHEDULE, 20.0).color(p.primary));
                         ui.heading(&t.name);
+                        if !t.deletable {
+                            theme::pill(ui, &p, "System");
+                        }
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                             if theme::toggle(ui, &p, t.enabled()).clicked() {
                                 let what = if t.enabled() { "disable" } else { "enable" };
@@ -359,7 +362,8 @@ impl App {
                         if theme::action_button(ui, &p, icon::ARTICLE, "Logs", false).clicked() {
                             action = Some((n(), "logs"));
                         }
-                        if theme::action_button(ui, &p, icon::EDIT, "Edit", false).clicked() {
+                        // Only timers with a unit file in the user directory can be edited or deleted.
+                        if t.deletable && theme::action_button(ui, &p, icon::EDIT, "Edit", false).clicked() {
                             action = Some((n(), "edit"));
                         }
                         if t.deletable && theme::action_button(ui, &p, icon::DELETE, "Delete", true).clicked() {

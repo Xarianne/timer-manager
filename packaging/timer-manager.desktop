@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Timer Manager
+Comment=Create and manage systemd user timers
+Exec=timer-manager
+Icon=preferences-system-time
+Categories=Utility;System;
+StartupWMClass=timer-manager

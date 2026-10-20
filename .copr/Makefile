@@ -4,13 +4,16 @@
 # The crates from Cargo.lock are vendored into a second tarball here, where
 # the network is available, so the RPM itself builds offline.
 
-spec := packaging/timer-manager.spec
+# Not named "spec": COPR passes its own spec=<path> on the command line,
+# which would override this.
+specfile := packaging/timer-manager.spec
 name := timer-manager
-version = $(shell rpmspec -q --qf '%{version}' $(spec))
+version = $(shell rpmspec -q --qf '%{version}' $(specfile))
 src = $(name)-$(version)
 
 srpm:
 	command -v cargo >/dev/null || dnf -y install cargo
+	command -v git >/dev/null || dnf -y install git
 	mkdir -p $(outdir)
 	git -c safe.directory='*' archive --prefix=$(src)/ -o $(outdir)/$(src).tar.gz HEAD
 	rm -rf $(outdir)/vendor-work
@@ -19,6 +22,6 @@ srpm:
 	cd $(outdir)/vendor-work/$(src) && cargo vendor --locked vendor >/dev/null
 	tar -czf $(outdir)/$(src)-vendor.tar.gz -C $(outdir)/vendor-work/$(src) vendor
 	rm -rf $(outdir)/vendor-work
-	rpmbuild -bs $(spec) \
+	rpmbuild -bs $(specfile) \
 		--define '_sourcedir $(outdir)' \
 		--define '_srcrpmdir $(outdir)'

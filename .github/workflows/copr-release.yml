@@ -1,0 +1,45 @@
+name: COPR release build
+
+# Builds the tagged commit in COPR when a GitHub release is published.
+# Needs a repo secret COPR_CONFIG holding the contents of ~/.config/copr
+# (from https://copr.fedorainfracloud.org/api/).
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  copr:
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - name: Install tools
+        run: dnf -y install git rpm-build copr-cli
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Check the tag matches the spec version
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          spec_version="$(rpmspec -q --qf '%{version}\n' packaging/timer-manager.spec | head -n1)"
+          if [ "${tag#v}" != "$spec_version" ]; then
+            echo "Tag $tag does not match Version: $spec_version in the spec" >&2
+            exit 1
+          fi
+
+      - name: Configure copr-cli
+        env:
+          COPR_CONFIG: ${{ secrets.COPR_CONFIG }}
+        run: |
+          mkdir -p ~/.config
+          printf '%s\n' "$COPR_CONFIG" > ~/.config/copr
+
+      - name: Build in COPR
+        run: |
+          copr-cli buildscm \
+            --clone-url "https://github.com/${{ github.repository }}" \
+            --commit "${{ github.event.release.tag_name }}" \
+            --method make_srpm \
+            xariann/tools

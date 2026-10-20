@@ -7,7 +7,7 @@
 %global debug_package %{nil}
 
 Name:           timer-manager
-Version:        0.1.0
+Version:        0.1.1
 Release:        1%{?dist}
 Summary:        Create and manage systemd user timers
 
@@ -82,5 +82,8 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/timer-manager.desktop
 %{_datadir}/applications/timer-manager.desktop
 
 %changelog
+* Tue Oct 20 2026 xariann <xariann.widely103@passmail.com> - 0.1.1-1
+- Hide the Edit button for system timers and label them with a System badge
+
 * Tue Oct 20 2026 xariann <xariann.widely103@passmail.com> - 0.1.0-1
 - Initial package

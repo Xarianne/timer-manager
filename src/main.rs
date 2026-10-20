@@ -270,7 +270,7 @@ impl App {
             }
             ui.heading(RichText::new(title).size(20.0));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if theme::icon_button(ui, &p, icon::CLOSE, "Close").clicked() {
+                if !theme::use_window_decorations() && theme::icon_button(ui, &p, icon::CLOSE, "Close").clicked() {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
                 if in_list && theme::icon_button(ui, &p, icon::REFRESH, "Refresh").clicked() {
@@ -797,7 +797,7 @@ fn main() -> eframe::Result {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1040.0, 700.0])
             .with_min_inner_size([760.0, 520.0])
-            .with_decorations(false)
+            .with_decorations(theme::use_window_decorations())
             .with_transparent(true)
             .with_app_id("timer-manager"),
         ..Default::default()

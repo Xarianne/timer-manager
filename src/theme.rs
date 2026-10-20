@@ -67,7 +67,7 @@ impl Palette {
         Palette {
             dark: true,
             background: c(0x1e1e2e),
-            window_alpha: 0.85,
+            window_alpha: 0.92,
             surface: c(0x28283a),
             surface_high: c(0x33334a),
             primary: c(0x89b4fa),
@@ -103,20 +103,17 @@ fn hex(v: &Value) -> Option<Color32> {
     Some(Color32::from_rgb((n >> 16) as u8, (n >> 8) as u8, n as u8))
 }
 
-/// DMS's popup transparency (0 to 1), if set.
-fn dms_transparency() -> Option<f32> {
-    let home = std::env::var("HOME").ok()?;
-    let text = fs::read_to_string(PathBuf::from(home).join(".config/DankMaterialShell/settings.json")).ok()?;
-    let json: Value = serde_json::from_str(&text).ok()?;
-    Some((json["popupTransparency"].as_f64()? as f32).clamp(0.3, 1.0))
+/// Whether the window should get the compositor's title bar. Tiling compositors draw their own
+/// borders, but floating desktops like Plasma need it to move and close the window.
+pub fn use_window_decorations() -> bool {
+    const TILING: [&str; 6] = ["hyprland", "niri", "sway", "river", "scroll", "mango"];
+    let desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().to_lowercase();
+    !desktop.split(':').any(|d| TILING.contains(&d))
 }
 
 /// Reads DMS's live theme; falls back to a built-in dark palette.
 pub fn load_palette() -> Palette {
     let mut p = Palette::fallback();
-    if let Some(alpha) = dms_transparency() {
-        p.window_alpha = alpha;
-    }
     let Ok(text) = fs::read_to_string(colors_path()) else { return p };
     let Ok(json) = serde_json::from_str::<Value>(&text) else { return p };
     let mode = json["mode"].as_str().unwrap_or("dark").to_string();

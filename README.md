@@ -44,8 +44,8 @@ Optional, used when present:
 
 - `kdialog` or `zenity` for the **Browse** button
 - [Dank Material Shell](https://github.com/AvengeMedia/DankMaterialShell): the
-  app reads its theme colors (`~/.cache/DankMaterialShell/dms-colors.json`),
-  its transparency setting, and the Inter and Material Symbols fonts it ships
+  app reads its theme colors (`~/.cache/DankMaterialShell/dms-colors.json`)
+  and the Inter and Material Symbols fonts it ships
 - Noto Sans (via fontconfig) for the bold headings
 
 Without these, the app falls back to a built-in dark palette and egui's built-in
@@ -80,10 +80,6 @@ timer-manager          # My timers
 timer-manager --all    # All user timers, including ones shipped with the system
 timer-manager --new    # Open directly on the New timer form
 ```
-
-The window has no title bar: use the close button at the top right.
-Transparency needs a compositor that supports it. Blur depends on your
-compositor settings (for example Hyprland's `decoration:blur`).
 
 ## Tests
 

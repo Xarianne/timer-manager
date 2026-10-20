@@ -51,7 +51,21 @@ Optional, used when present:
 Without these, the app falls back to a built-in dark palette and egui's built-in
 fonts, and icons are left out.
 
-## Build and install
+## Install on Fedora
+
+Timer Manager is packaged in a [COPR](https://copr.fedorainfracloud.org/coprs/xariann/tools/)
+repository for Fedora 44, 45 and Rawhide (x86_64). Enable it, then install:
+
+```sh
+sudo dnf copr enable xariann/tools
+sudo dnf install timer-manager
+```
+
+Updates arrive with the rest of your system updates (`sudo dnf upgrade`). To
+remove it, run `sudo dnf remove timer-manager`; timers you created stay in
+`~/.config/systemd/user/`.
+
+## Build from source
 
 ```sh
 cargo build --release

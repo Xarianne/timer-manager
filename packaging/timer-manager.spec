@@ -7,7 +7,7 @@
 %global debug_package %{nil}
 
 Name:           timer-manager
-Version:        0.3.0
+Version:        0.3.1
 Release:        1%{?dist}
 Summary:        Create and manage systemd user timers
 
@@ -82,6 +82,9 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/timer-manager.desktop
 %{_datadir}/applications/timer-manager.desktop
 
 %changelog
+* Tue Oct 20 2026 xariann <xariann.widely103@passmail.com> - 0.3.1-1
+- Find the DMS fonts in the renamed DCommon directory as well as the older DankCommon one
+
 * Tue Oct 20 2026 xariann <xariann.widely103@passmail.com> - 0.3.0-1
 - Enable copy and paste in the text fields
 - Give the Command field its own full-width line so long commands fit

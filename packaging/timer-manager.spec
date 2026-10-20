@@ -1,8 +1,7 @@
-# Built for COPR with "Enable internet access during builds" turned on:
-# cargo downloads the crates listed in Cargo.lock while building.
-#
-# Source0 is made from a git checkout:
-#   git archive --prefix=timer-manager-%%{version}/ -o timer-manager-%%{version}.tar.gz HEAD
+# Builds offline: the crates listed in Cargo.lock come vendored in Source1.
+# Both tarballs are made by .copr/Makefile (make -f .copr/Makefile srpm outdir=DIR):
+#   Source0: git archive of the repo
+#   Source1: the output of "cargo vendor" in that tree
 
 # Rust binaries carry no useful debuginfo here.
 %global debug_package %{nil}
@@ -17,6 +16,7 @@ Summary:        Create and manage systemd user timers
 License:        GPL-3.0-only AND Apache-2.0 AND BSL-1.0 AND ISC AND MIT AND OFL-1.1 AND Ubuntu-font-1.0 AND Unicode-3.0 AND Zlib
 URL:            https://github.com/Xarianne/timer-manager
 Source0:        %{name}-%{version}.tar.gz
+Source1:        %{name}-%{version}-vendor.tar.gz
 
 BuildRequires:  cargo
 BuildRequires:  rust >= 1.95
@@ -53,10 +53,18 @@ Timers it creates are ordinary files in ~/.config/systemd/user, so they keep
 working without the app.
 
 %prep
-%autosetup
+%autosetup -a1
+mkdir -p .cargo
+cat > .cargo/config.toml <<'EOF'
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"
+EOF
 
 %build
-cargo build --release --locked
+cargo build --release --locked --offline
 
 %install
 install -Dpm755 target/release/timer-manager %{buildroot}%{_bindir}/timer-manager

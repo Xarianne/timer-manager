@@ -25,6 +25,20 @@ BuildRequires:  desktop-file-utils
 
 Requires:       systemd
 Requires:       fontconfig
+# The app loads its graphics libraries at runtime, so rpm cannot detect them.
+Requires:       libwayland-client
+Requires:       libwayland-egl
+Requires:       libxkbcommon
+Requires:       libglvnd-egl
+Requires:       libglvnd-glx
+# X11 fallback
+Recommends:     libX11
+Recommends:     libX11-xcb
+Recommends:     libxcb
+Recommends:     libXcursor
+Recommends:     libXi
+Recommends:     libXrender
+Recommends:     libxkbcommon-x11
 Recommends:     (kdialog or zenity)
 
 %description

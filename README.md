@@ -8,6 +8,12 @@ Timers made in the app are ordinary `.service` and `.timer` files in
 `~/.config/systemd/user/`, so systemd runs them and they keep working if you
 uninstall the app.
 
+## Screenshots
+
+![The timer list](docs/timer-list.png)
+
+![The New timer form](docs/new-timer.png)
+
 ## Features
 
 - **Timer list** with an on/off switch, the schedule in plain English, the
@@ -23,9 +29,10 @@ uninstall the app.
   for anything the form doesn't cover. Duplicate settings are flagged.
 - **Validated before saving:** `systemd-analyze verify` checks the generated
   files, so a typo can't leave a broken unit behind.
-- **Safe editing:** only timers created by this app can be edited in the form or
-  deleted. Other timers can be run, enabled, disabled, and opened in your text
-  editor.
+- **Safe editing:** only timers created by this app can be edited in the form.
+  Other timers can be run, enabled, disabled, and opened in your text editor.
+  Any timer with a unit file in `~/.config/systemd/user` can be deleted, after a
+  confirmation. Timers shipped with the system can't be deleted.
 
 ## Requirements
 

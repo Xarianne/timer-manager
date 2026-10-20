@@ -1,0 +1,64 @@
+# Built for COPR with "Enable internet access during builds" turned on:
+# cargo downloads the crates listed in Cargo.lock while building.
+#
+# Source0 is made from a git checkout:
+#   git archive --prefix=timer-manager-%%{version}/ -o timer-manager-%%{version}.tar.gz HEAD
+
+# Rust binaries carry no useful debuginfo here.
+%global debug_package %{nil}
+
+Name:           timer-manager
+Version:        0.1.0
+Release:        1%{?dist}
+Summary:        Create and manage systemd user timers
+
+# GPL-3.0-only is the app itself. The rest covers the Rust crates and fonts
+# compiled into the binary; for dual-licensed crates one option is listed.
+License:        GPL-3.0-only AND Apache-2.0 AND BSL-1.0 AND ISC AND MIT AND OFL-1.1 AND Ubuntu-font-1.0 AND Unicode-3.0 AND Zlib
+URL:            https://github.com/Xarianne/timer-manager
+Source0:        %{name}-%{version}.tar.gz
+
+BuildRequires:  cargo
+BuildRequires:  rust >= 1.95
+BuildRequires:  gcc
+BuildRequires:  desktop-file-utils
+
+Requires:       systemd
+Requires:       fontconfig
+Recommends:     (kdialog or zenity)
+
+%description
+Timer Manager is a small desktop app for creating and managing systemd user
+timers without writing unit files by hand. It lists your timers with an on/off
+switch and their next and last run time, runs a job on demand and shows its
+output, and has a form with presets, a script picker, service and timer
+options, and raw extra settings. Settings are checked with systemd-analyze
+before anything is installed.
+
+Timers it creates are ordinary files in ~/.config/systemd/user, so they keep
+working without the app.
+
+%prep
+%autosetup
+
+%build
+cargo build --release --locked
+
+%install
+install -Dpm755 target/release/timer-manager %{buildroot}%{_bindir}/timer-manager
+install -Dpm644 packaging/timer-manager.desktop %{buildroot}%{_datadir}/applications/timer-manager.desktop
+
+%check
+desktop-file-validate %{buildroot}%{_datadir}/applications/timer-manager.desktop
+# The unit tests create and delete real timers in the user's systemd instance,
+# which a build chroot does not have, so they are not run here.
+
+%files
+%license LICENSE
+%doc README.md
+%{_bindir}/timer-manager
+%{_datadir}/applications/timer-manager.desktop
+
+%changelog
+* Tue Oct 20 2026 xariann <xariann.widely103@passmail.com> - 0.1.0-1
+- Initial package

@@ -482,17 +482,20 @@ impl App {
                 );
             });
             theme::divider(ui);
+            // Commands are long, so the field gets its own full-width line under the title.
             theme::setting_row(ui, &p, "Command", "What to run: a shell command, or pick a script.", |ui| {
                 if theme::action_button(ui, &p, icon::FOLDER, "Browse", false).clicked() {
                     browse = true;
                 }
-                ui.add(
-                    egui::TextEdit::singleline(&mut spec.command)
-                        .desired_width(200.0)
-                        .hint_text("command or script")
-                        .margin(egui::Margin::symmetric(10, 8)),
-                );
             });
+            ui.add_space(4.0);
+            ui.add(
+                egui::TextEdit::singleline(&mut spec.command)
+                    .desired_width(f32::INFINITY)
+                    .hint_text("command or script")
+                    .margin(egui::Margin::symmetric(10, 8)),
+            );
+            ui.add_space(4.0);
         });
         ui.add_space(8.0);
 

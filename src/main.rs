@@ -362,7 +362,7 @@ impl App {
                         if theme::action_button(ui, &p, icon::EDIT, "Edit", false).clicked() {
                             action = Some((n(), "edit"));
                         }
-                        if t.managed && theme::action_button(ui, &p, icon::DELETE, "Delete", true).clicked() {
+                        if t.deletable && theme::action_button(ui, &p, icon::DELETE, "Delete", true).clicked() {
                             action = Some((n(), "delete"));
                         }
                     });
@@ -751,6 +751,13 @@ impl App {
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
                 ui.label(format!("Delete {name} and its service? This cannot be undone."));
+                if !systemd::is_managed(&name) {
+                    ui.label(
+                        RichText::new("Not made by this app: its unit files in ~/.config/systemd/user will be removed.")
+                            .small()
+                            .color(p.on_surface_variant),
+                    );
+                }
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     if theme::action_button(ui, &p, icon::DELETE, "Delete", true).clicked() {

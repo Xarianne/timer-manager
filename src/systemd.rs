@@ -49,6 +49,8 @@ pub struct TimerInfo {
     pub summary: String,
     pub command: String,
     pub managed: bool,
+    /// The timer has a unit file in ~/.config/systemd/user, so it can be removed.
+    pub deletable: bool,
 }
 
 impl TimerInfo {
@@ -125,6 +127,7 @@ pub fn list_timers(show_all: bool) -> Vec<TimerInfo> {
             summary,
             command: command_of(name, managed),
             managed,
+            deletable: dir.join(unit).exists(),
             name: name.to_string(),
             state: f["state"].as_str().unwrap_or("?").to_string(),
             next: live.and_then(|e| nonzero(&e["next"])),
@@ -198,8 +201,8 @@ pub fn open_in_editor(name: &str) -> Result<String, String> {
 }
 
 pub fn delete(name: &str) -> Result<String, String> {
-    if !is_managed(name) {
-        return Err("Only timers created by this app can be deleted".into());
+    if !unit_dir().join(format!("{name}.timer")).exists() {
+        return Err("System-provided timer: nothing in ~/.config/systemd/user to delete".into());
     }
     let _ = sctl(&["disable", "--now", &format!("{name}.timer")]);
     let dir = unit_dir();

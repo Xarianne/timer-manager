@@ -7,7 +7,7 @@
 %global debug_package %{nil}
 
 Name:           timer-manager
-Version:        0.3.1
+Version:        0.3.2
 Release:        1%{?dist}
 Summary:        Create and manage systemd user timers
 
@@ -82,6 +82,9 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/timer-manager.desktop
 %{_datadir}/applications/timer-manager.desktop
 
 %changelog
+* Sat Oct 24 2026 xariann <xariann.widely103@passmail.com> - 0.3.2-1
+- Open terminal text editors like nano or Fresh in a terminal when editing a timer outside Plasma and GNOME
+
 * Tue Oct 20 2026 xariann <xariann.widely103@passmail.com> - 0.3.1-1
 - Find the DMS fonts in the renamed DCommon directory as well as the older DankCommon one
 

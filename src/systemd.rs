@@ -181,6 +181,46 @@ pub fn reload() {
     let _ = sctl(&["daemon-reload"]);
 }
 
+/// The default text editor's command when its launcher says Terminal=true, and whether it
+/// takes several files at once. Outside Plasma and GNOME, xdg-open runs such editors without
+/// a terminal and they quit straight away; those two open a terminal themselves.
+fn terminal_editor() -> Option<(Vec<String>, bool)> {
+    let desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().to_lowercase();
+    if desktop.split(':').any(|d| d == "kde" || d == "gnome") {
+        return None;
+    }
+    let id = run("xdg-mime", &["query", "default", "text/plain"]).ok()?;
+    let id = id.trim();
+    if id.is_empty() {
+        return None;
+    }
+    let home = std::env::var("HOME").unwrap_or_default();
+    let data_home = std::env::var("XDG_DATA_HOME").unwrap_or(format!("{home}/.local/share"));
+    let data_dirs = std::env::var("XDG_DATA_DIRS").unwrap_or("/usr/local/share:/usr/share".into());
+    let text = std::iter::once(data_home.as_str())
+        .chain(data_dirs.split(':'))
+        .find_map(|dir| fs::read_to_string(format!("{dir}/applications/{id}")).ok())?;
+    // Only the [Desktop Entry] group; any [Desktop Action ...] groups come after it.
+    let entry = text.split("\n[").next()?;
+    let key = |k: &str| entry.lines().find_map(|l| l.strip_prefix(k)?.strip_prefix('=').map(str::trim));
+    if key("Terminal") != Some("true") {
+        return None;
+    }
+    let exec = key("Exec")?;
+    let takes_many = exec.contains("%F") || exec.contains("%U");
+    // Drop field codes like %F; the files are added by the caller.
+    let words = exec.split_whitespace().filter(|w| !(w.len() == 2 && w.starts_with('%')));
+    Some((words.map(String::from).collect(), takes_many))
+}
+
+fn open_in_terminal(editor: &[String], takes_many: bool, files: &[PathBuf]) -> std::io::Result<()> {
+    let batches: Vec<&[PathBuf]> = if takes_many { vec![files] } else { files.chunks(1).collect() };
+    for batch in batches {
+        Command::new("xdg-terminal-exec").args(editor).args(batch).spawn()?;
+    }
+    Ok(())
+}
+
 /// Opens a timer made outside this app in the default text editor.
 pub fn open_in_editor(name: &str) -> Result<String, String> {
     let path = unit_dir().join(format!("{name}.timer"));
@@ -191,6 +231,16 @@ pub fn open_in_editor(name: &str) -> Result<String, String> {
     let service = unit_dir().join(format!("{name}.service"));
     let mut files = vec![service.clone(), path];
     files.retain(|p| p.exists());
+    if let Some((editor, takes_many)) = terminal_editor() {
+        match open_in_terminal(&editor, takes_many, &files) {
+            Ok(()) => {
+                return Ok(format!("Opened {name}.timer and .service in your editor - press Refresh after saving"));
+            }
+            // Not installed: let xdg-open try.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(format!("xdg-terminal-exec: {e}")),
+        }
+    }
     for file in &files {
         Command::new("xdg-open")
             .arg(file)

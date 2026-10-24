@@ -43,6 +43,8 @@ uninstall the app.
 Optional, used when present:
 
 - `kdialog` or `zenity` for the **Browse** button
+- `xdg-terminal-exec` to open unit files when your default text editor runs in
+  a terminal (like nano or Fresh), on desktops other than Plasma and GNOME
 - [Dank Material Shell](https://github.com/AvengeMedia/DankMaterialShell): the
   app reads its theme colors (`~/.cache/DankMaterialShell/dms-colors.json`)
   and the Inter and Material Symbols fonts it ships

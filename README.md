@@ -1,8 +1,9 @@
 # Timer Manager
 
 A small desktop app for creating and managing **systemd user timers** without
-writing unit files by hand. It is a single Rust binary built with
-[egui](https://github.com/emilk/egui).
+writing unit files by hand. It is a Rust app built with
+[GTK 4](https://gtk.org) and [libadwaita](https://gnome.pages.gitlab.gnome.org/libadwaita/),
+so it follows your system's dark mode, accent color and icons.
 
 Timers made in the app are ordinary `.service` and `.timer` files in
 `~/.config/systemd/user/`, so systemd runs them and they keep working if you
@@ -37,21 +38,14 @@ uninstall the app.
 ## Requirements
 
 - Linux with systemd (user instance) and `systemd-analyze`
-- A Wayland or X11 session
-- Rust (edition 2024) to build it
+- GTK 4.12 or newer and libadwaita 1.6 or newer
+- To build it: Rust (edition 2024) and the GTK development files
+  (`sudo dnf install gtk4-devel libadwaita-devel` on Fedora)
 
 Optional, used when present:
 
-- `kdialog` or `zenity` for the **Browse** button
 - `xdg-terminal-exec` to open unit files when your default text editor runs in
   a terminal (like nano or Fresh), on desktops other than Plasma and GNOME
-- [Dank Material Shell](https://github.com/AvengeMedia/DankMaterialShell): the
-  app reads its theme colors (`~/.cache/DankMaterialShell/dms-colors.json`)
-  and the Inter and Material Symbols fonts it ships
-- Noto Sans (via fontconfig) for the bold headings
-
-Without these, the app falls back to a built-in dark palette and egui's built-in
-fonts, and icons are left out.
 
 ## Install on Fedora
 
@@ -72,7 +66,7 @@ remove it, run `sudo dnf remove timer-manager`; timers you created stay in
 ```sh
 cargo build --release
 install -Dm755 target/release/timer-manager ~/.local/bin/timer-manager
-install -Dm644 packaging/timer-manager.desktop ~/.local/share/applications/timer-manager.desktop
+install -Dm644 packaging/io.github.xarianne.TimerManager.desktop ~/.local/share/applications/io.github.xarianne.TimerManager.desktop
 ```
 
 ## Usage

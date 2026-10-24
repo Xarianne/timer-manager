@@ -1,137 +1,57 @@
+mod form;
 mod systemd;
-mod theme;
 
 use std::{
-    sync::mpsc::{self, Receiver},
-    time::{Duration, Instant, SystemTime},
+    cell::{Cell, RefCell},
+    collections::HashSet,
+    rc::Rc,
 };
 
+use adw::prelude::*;
 use chrono::{Local, TimeZone};
-use eframe::egui::{self, Align, Layout, RichText};
-use systemd::{Kind, Restart, ServiceType, Spec, TimerInfo, WEEKDAYS};
-use theme::{icon, Palette};
+use gtk::{gio, glib};
+use systemd::{Spec, TimerInfo};
 
-enum View {
-    List,
-    Edit { spec: Spec, existing: bool },
-    Logs { name: String, text: String },
+const APP_ID: &str = "io.github.xarianne.TimerManager";
+
+/// Sidebar rows, in order.
+const MINE: i32 = 0;
+const ALL: i32 = 1;
+const NEW: i32 = 2;
+
+struct State {
+    window: adw::ApplicationWindow,
+    split: adw::NavigationSplitView,
+    page: adw::NavigationPage,
+    stack: gtk::Stack,
+    nav: gtk::ListBox,
+    list: gtk::ListBox,
+    toasts: adw::ToastOverlay,
+    reload: gtk::Button,
+    save: gtk::Button,
+    cancel: gtk::Button,
+    show_all: Cell<bool>,
+    search: RefCell<String>,
+    /// Rows the user opened, so a refresh keeps them open.
+    expanded: RefCell<HashSet<String>>,
+    /// The spec behind the open form, and whether it edits an existing timer.
+    form: RefCell<Option<(Rc<RefCell<Spec>>, bool)>>,
+    running: Cell<bool>,
 }
 
-#[derive(PartialEq, Clone, Copy)]
-enum Page {
-    Mine,
-    All,
-    New,
-}
-
-struct App {
-    timers: Vec<TimerInfo>,
-    show_all: bool,
-    view: View,
-    status: String,
-    search: String,
-    confirm_delete: Option<String>,
-    last_refresh: Instant,
-    preview: (String, Result<String, String>),
-    running: Option<(String, Receiver<String>)>,
-    picker: Option<Receiver<Result<Option<String>, String>>>,
-    palette: Palette,
-    palette_mtime: Option<SystemTime>,
-    last_theme_check: Instant,
-}
-
-impl App {
-    fn new(palette: Palette) -> Self {
-        let mut app = App {
-            timers: Vec::new(),
-            show_all: false,
-            view: View::List,
-            status: String::new(),
-            search: String::new(),
-            confirm_delete: None,
-            last_refresh: Instant::now(),
-            preview: (String::new(), Ok(String::new())),
-            running: None,
-            picker: None,
-            palette,
-            palette_mtime: theme::colors_modified(),
-            last_theme_check: Instant::now(),
-        };
-        app.refresh();
-        let args: Vec<String> = std::env::args().collect();
-        if args.iter().any(|a| a == "--new") {
-            app.go(Page::New);
-        } else if args.iter().any(|a| a == "--all") {
-            app.go(Page::All);
-        }
-        app
-    }
-
-    fn refresh(&mut self) {
-        self.timers = systemd::list_timers(self.show_all);
-        self.last_refresh = Instant::now();
-    }
-
-    fn report(&mut self, result: Result<String, String>) {
-        self.status = match result {
-            Ok(msg) => msg,
-            Err(e) => format!("Error: {e}"),
-        };
-        self.refresh();
-    }
-
-    fn page(&self) -> Page {
-        match &self.view {
-            View::Edit { existing: false, .. } => Page::New,
-            _ if self.show_all => Page::All,
-            _ => Page::Mine,
-        }
-    }
-
-    fn go(&mut self, page: Page) {
-        match page {
-            Page::Mine | Page::All => {
-                self.show_all = page == Page::All;
-                self.view = View::List;
-                self.refresh();
-            }
-            Page::New => self.view = View::Edit { spec: Spec::default(), existing: false },
-        }
-    }
-
-    /// DMS rewrites its colors when the theme changes; follow along.
-    fn poll_theme(&mut self, ctx: &egui::Context) {
-        if self.last_theme_check.elapsed() < Duration::from_secs(2) {
-            return;
-        }
-        self.last_theme_check = Instant::now();
-        let modified = theme::colors_modified();
-        if modified != self.palette_mtime {
-            self.palette_mtime = modified;
-            self.palette = theme::load_palette();
-            theme::apply_palette(ctx, &self.palette);
-        }
-    }
-}
-
-/// Shows the desktop's file chooser (KDE's, else GTK's) and returns the chosen path.
-fn pick_file() -> Result<Option<String>, String> {
-    let home = std::env::var("HOME").unwrap_or_default();
-    let dialogs: [(&str, Vec<&str>); 2] = [
-        ("kdialog", vec!["--getopenfilename", &home]),
-        ("zenity", vec!["--file-selection"]),
-    ];
-    for (program, args) in dialogs {
-        match std::process::Command::new(program).args(&args).output() {
-            Ok(out) => {
-                let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                return Ok(if path.is_empty() { None } else { Some(path) });
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(e) => return Err(format!("{program}: {e}")),
-        }
-    }
-    Err("No file chooser found; install kdialog or zenity".into())
+fn main() -> glib::ExitCode {
+    let args: Vec<String> = std::env::args().collect();
+    let start = if args.iter().any(|a| a == "--new") {
+        NEW
+    } else if args.iter().any(|a| a == "--all") {
+        ALL
+    } else {
+        MINE
+    };
+    let app = adw::Application::builder().application_id(APP_ID).build();
+    app.connect_activate(move |app| build_window(app, start));
+    // GApplication rejects options it doesn't know, so it only gets the program name.
+    app.run_with_args(&args[..1])
 }
 
 fn format_time(us: Option<u64>) -> String {
@@ -151,670 +71,398 @@ fn format_time(us: Option<u64>) -> String {
     format!("{} ({rel})", t.format("%a %d %b %H:%M"))
 }
 
-impl eframe::App for App {
-    /// Fully transparent, so only the tinted panels (and the solid cards) are drawn.
-    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        [0.0, 0.0, 0.0, 0.0]
+fn build_window(app: &adw::Application, start: i32) {
+    if let Some(window) = app.active_window() {
+        window.present();
+        return;
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        let ctx = ui.ctx().clone();
-        ctx.request_repaint_after(Duration::from_secs(2));
-        self.poll_theme(&ctx);
-        if matches!(self.view, View::List) && self.last_refresh.elapsed() > Duration::from_secs(5) {
-            self.refresh();
-        }
-
-        if let Some(rx) = &self.picker {
-            match rx.try_recv() {
-                Ok(result) => {
-                    self.picker = None;
-                    match (result, &mut self.view) {
-                        (Ok(Some(path)), View::Edit { spec, .. }) => {
-                            spec.command = systemd::script_command(&path);
-                            self.status = format!("Command set from {path}");
-                        }
-                        (Err(e), _) => self.status = format!("Error: {e}"),
-                        _ => {}
-                    }
-                }
-                Err(mpsc::TryRecvError::Disconnected) => self.picker = None,
-                Err(mpsc::TryRecvError::Empty) => {}
-            }
-        }
-
-        if let Some((name, rx)) = &self.running {
-            if let Ok(text) = rx.try_recv() {
-                let name = name.clone();
-                self.running = None;
-                self.status = format!("Finished running {name}");
-                self.view = View::Logs { name, text };
-                self.refresh();
-            }
-        }
-
-        let p = self.palette;
-        egui::Panel::left("nav")
-            .exact_size(250.0)
-            .resizable(false)
-            .frame(egui::Frame::new().fill(p.backdrop()).inner_margin(egui::Margin::same(16)))
-            .show(ui, |ui| self.nav_ui(ui));
-
-        if !self.status.is_empty() {
-            egui::Panel::bottom("status")
-                .frame(egui::Frame::new().fill(p.backdrop()).inner_margin(egui::Margin::symmetric(24, 10)))
-                .show(ui, |ui| {
-                    ui.label(RichText::new(&self.status).small().color(p.on_surface_variant));
-                });
-        }
-
-        egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(p.backdrop()).inner_margin(egui::Margin::symmetric(20, 12)))
-            .show(ui, |ui| self.content_ui(ui));
-
-        self.delete_dialog(&ctx);
+    // Sidebar: search and the pages.
+    let search = gtk::SearchEntry::builder()
+        .placeholder_text("Search timers")
+        .margin_start(12)
+        .margin_end(12)
+        .build();
+    let nav = gtk::ListBox::builder().css_classes(["navigation-sidebar"]).build();
+    for label in ["My timers", "All timers", "New timer"] {
+        nav.append(&gtk::Label::builder().label(label).xalign(0.0).build());
     }
-}
+    let sidebar_box = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(6)
+        .build();
+    sidebar_box.append(&search);
+    sidebar_box.append(&nav);
+    let sidebar_view = adw::ToolbarView::new();
+    sidebar_view.add_top_bar(&adw::HeaderBar::new());
+    sidebar_view.set_content(Some(&sidebar_box));
+    let sidebar = adw::NavigationPage::builder()
+        .title("Timer Manager")
+        .child(&sidebar_view)
+        .build();
 
-impl App {
-    fn nav_ui(&mut self, ui: &mut egui::Ui) {
-        let p = self.palette;
-        ui.horizontal(|ui| {
-            ui.label(icon(icon::SCHEDULE, 24.0).color(p.primary));
-            ui.heading("Timer Manager");
-        });
-        ui.add_space(12.0);
-        ui.add(
-            egui::TextEdit::singleline(&mut self.search)
-                .hint_text("Search timers...")
-                .desired_width(f32::INFINITY)
-                .margin(egui::Margin::symmetric(10, 7)),
-        );
-        ui.add_space(10.0);
+    // Content: the timer list, or the form.
+    let list = gtk::ListBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .css_classes(["boxed-list"])
+        .valign(gtk::Align::Start)
+        .build();
+    let clamp = adw::Clamp::builder()
+        .maximum_size(860)
+        .margin_top(24)
+        .margin_bottom(24)
+        .margin_start(12)
+        .margin_end(12)
+        .child(&list)
+        .build();
+    let scroll = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .vexpand(true)
+        .child(&clamp)
+        .build();
+    let stack = gtk::Stack::new();
+    stack.add_named(&scroll, Some("list"));
+    let toasts = adw::ToastOverlay::new();
+    toasts.set_child(Some(&stack));
 
-        let page = self.page();
-        let mut go = None;
-        for (target, glyph, label) in [
-            (Page::Mine, icon::SCHEDULE, "My timers"),
-            (Page::All, icon::LIST, "All timers"),
-            (Page::New, icon::ADD, "New timer"),
-        ] {
-            if theme::nav_item(ui, &p, glyph, label, page == target).clicked() {
-                go = Some(target);
-            }
-            ui.add_space(2.0);
-        }
-        if let Some(target) = go {
-            self.go(target);
-        }
-    }
+    let header = adw::HeaderBar::new();
+    let reload = gtk::Button::builder()
+        .icon_name("view-refresh-symbolic")
+        .tooltip_text("Refresh")
+        .build();
+    let save = gtk::Button::builder()
+        .label("Save")
+        .css_classes(["suggested-action"])
+        .visible(false)
+        .build();
+    let cancel = gtk::Button::builder().label("Cancel").visible(false).build();
+    header.pack_start(&cancel);
+    header.pack_end(&reload);
+    header.pack_end(&save);
+    let content_view = adw::ToolbarView::new();
+    content_view.add_top_bar(&header);
+    content_view.set_content(Some(&toasts));
+    let page = adw::NavigationPage::builder()
+        .title("My timers")
+        .child(&content_view)
+        .build();
 
-    fn content_ui(&mut self, ui: &mut egui::Ui) {
-        let p = self.palette;
-        let ctx = ui.ctx().clone();
-        let title = match &self.view {
-            View::List if self.show_all => "All timers".to_string(),
-            View::List => "My timers".to_string(),
-            View::Edit { existing: true, .. } => "Edit timer".to_string(),
-            View::Edit { .. } => "New timer".to_string(),
-            View::Logs { name, .. } => format!("Output: {name}"),
-        };
-        let in_list = matches!(self.view, View::List);
-        let in_logs = matches!(self.view, View::Logs { .. });
+    let split = adw::NavigationSplitView::builder()
+        .sidebar(&sidebar)
+        .content(&page)
+        .min_sidebar_width(220.0)
+        .build();
+    let window = adw::ApplicationWindow::builder()
+        .application(app)
+        .title("Timer Manager")
+        .default_width(1000)
+        .default_height(720)
+        .width_request(360)
+        .height_request(300)
+        .content(&split)
+        .build();
+    let narrow = adw::Breakpoint::new(adw::BreakpointCondition::parse("max-width: 600sp").unwrap());
+    narrow.add_setter(&split, "collapsed", Some(&true.to_value()));
+    window.add_breakpoint(narrow);
 
-        let mut back = false;
-        let mut reload = false;
-        ui.horizontal(|ui| {
-            if in_logs && theme::icon_button(ui, &p, icon::BACK, "Back").clicked() {
-                back = true;
-            }
-            ui.heading(RichText::new(title).size(20.0));
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if !theme::use_window_decorations() && theme::icon_button(ui, &p, icon::CLOSE, "Close").clicked() {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                }
-                if in_list && theme::icon_button(ui, &p, icon::REFRESH, "Refresh").clicked() {
-                    reload = true;
-                }
-            });
-        });
-        ui.add_space(8.0);
-
-        if back {
-            self.view = View::List;
-            self.refresh();
-        }
-        if reload {
-            systemd::reload();
-            self.refresh();
-        }
-
-        // Keep the body at a readable width so controls stay near their labels.
-        let size = egui::vec2(ui.available_width().min(920.0), ui.available_height());
-        ui.allocate_ui_with_layout(size, Layout::top_down(Align::Min), |ui| match &self.view {
-            View::List => self.list_ui(ui),
-            View::Edit { .. } => {
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| self.edit_ui(ui));
-            }
-            View::Logs { .. } => self.logs_ui(ui),
-        });
-    }
-
-    fn list_ui(&mut self, ui: &mut egui::Ui) {
-        let p = self.palette;
-        let needle = self.search.trim().to_lowercase();
-        let mut action: Option<(String, &'static str)> = None;
-        let mut shown = 0;
-
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            for t in &self.timers {
-                if !needle.is_empty()
-                    && !t.name.to_lowercase().contains(&needle)
-                    && !t.command.to_lowercase().contains(&needle)
-                {
-                    continue;
-                }
-                shown += 1;
-                theme::card(ui, &p, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(icon(icon::SCHEDULE, 20.0).color(p.primary));
-                        ui.heading(&t.name);
-                        if !t.deletable {
-                            theme::pill(ui, &p, "System");
-                        }
-                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            if theme::toggle(ui, &p, t.enabled()).clicked() {
-                                let what = if t.enabled() { "disable" } else { "enable" };
-                                action = Some((t.name.clone(), what));
-                            }
-                            let (label, color) = if t.enabled() {
-                                ("Enabled", p.success)
-                            } else {
-                                ("Disabled", p.on_surface_variant)
-                            };
-                            ui.label(RichText::new(label).small().color(color));
-                        });
-                    });
-                    ui.add_space(2.0);
-                    ui.label(RichText::new(&t.summary).color(p.on_surface));
-                    let runs = if t.command.is_empty() { "(unknown)" } else { &t.command };
-                    ui.horizontal(|ui| {
-                        ui.label(icon(icon::TERMINAL, 16.0).color(p.on_surface_variant));
-                        ui.label(RichText::new(runs).monospace().color(p.on_surface_variant));
-                    });
-                    ui.label(
-                        RichText::new(format!(
-                            "Next: {}     Last: {}",
-                            format_time(t.next),
-                            format_time(t.last)
-                        ))
-                        .small()
-                        .color(p.on_surface_variant),
-                    );
-                    theme::divider(ui);
-                    ui.horizontal_wrapped(|ui| {
-                        let n = || t.name.clone();
-                        if theme::action_button(ui, &p, icon::PLAY, "Run now", false).clicked() {
-                            action = Some((n(), "run"));
-                        }
-                        if theme::action_button(ui, &p, icon::ARTICLE, "Logs", false).clicked() {
-                            action = Some((n(), "logs"));
-                        }
-                        // Only timers with a unit file in the user directory can be edited or deleted.
-                        if t.deletable && theme::action_button(ui, &p, icon::EDIT, "Edit", false).clicked() {
-                            action = Some((n(), "edit"));
-                        }
-                        if t.deletable && theme::action_button(ui, &p, icon::DELETE, "Delete", true).clicked() {
-                            action = Some((n(), "delete"));
-                        }
-                    });
-                });
-                ui.add_space(8.0);
-            }
-            if shown == 0 {
-                ui.label(RichText::new("No timers found.").color(p.on_surface_variant));
-            }
-        });
-
-        let Some((name, what)) = action else { return };
-        match what {
-            "run" if self.running.is_some() => {
-                self.status = "A job is already running".into();
-            }
-            "run" => {
-                let (tx, rx) = mpsc::channel();
-                let (job, ctx) = (name.clone(), ui.ctx().clone());
-                std::thread::spawn(move || {
-                    let _ = tx.send(systemd::run_now(&job));
-                    ctx.request_repaint();
-                });
-                self.status = format!("Running {name}...");
-                self.running = Some((name, rx));
-            }
-            "enable" | "disable" => {
-                let r = systemd::set_enabled(&name, what == "enable");
-                self.report(r);
-            }
-            "logs" => {
-                let text = systemd::logs(&name);
-                self.view = View::Logs { name, text };
-            }
-            "edit" => match Spec::load(&name) {
-                Some(spec) => self.view = View::Edit { spec, existing: true },
-                None => {
-                    self.status = match systemd::open_in_editor(&name) {
-                        Ok(msg) => msg,
-                        Err(e) => format!("Error: {e}"),
-                    }
-                }
-            },
-            "delete" => self.confirm_delete = Some(name),
-            _ => {}
-        }
-    }
-
-    fn logs_ui(&mut self, ui: &mut egui::Ui) {
-        let p = self.palette;
-        let View::Logs { text, .. } = &self.view else { return };
-        let mut text = text.clone();
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            theme::card(ui, &p, |ui| {
-                ui.add(
-                    egui::TextEdit::multiline(&mut text)
-                        .font(egui::TextStyle::Monospace)
-                        .desired_width(f32::INFINITY)
-                        .frame(egui::Frame::new()),
-                );
-            });
-        });
-    }
-
-    fn edit_ui(&mut self, ui: &mut egui::Ui) {
-        let p = self.palette;
-        let View::Edit { spec, existing } = &mut self.view else { return };
-        let existing = *existing;
-        let mut save = false;
-        let mut cancel = false;
-        let mut browse = false;
-        let mut preset: Option<usize> = None;
-
-        // Basics
-        theme::card(ui, &p, |ui| {
-            theme::section_header(ui, &p, icon::TUNE, "Basics");
-            if !existing {
-                theme::setting_row(
-                    ui,
-                    &p,
-                    "Start from",
-                    "Fill in a typical schedule and options. You can change anything afterwards.",
-                    |ui| {
-                        egui::ComboBox::from_id_salt("preset")
-                            .selected_text("Pick a preset (optional)")
-                            .width(280.0)
-                            .show_ui(ui, |ui| {
-                                for (i, label) in systemd::PRESETS.iter().enumerate() {
-                                    if ui.selectable_label(false, *label).clicked() {
-                                        preset = Some(i);
-                                    }
-                                }
-                            });
-                    },
-                );
-                theme::divider(ui);
-            }
-            theme::setting_row(ui, &p, "Name", "Letters, numbers, - and _. It can't be changed later.", |ui| {
-                ui.add_enabled(
-                    !existing,
-                    egui::TextEdit::singleline(&mut spec.name)
-                        .desired_width(280.0)
-                        .hint_text("e.g. backup-notes")
-                        .margin(egui::Margin::symmetric(10, 8)),
-                );
-            });
-            theme::divider(ui);
-            theme::setting_row(ui, &p, "Description", "A note about what this timer is for. Optional.", |ui| {
-                ui.add(
-                    egui::TextEdit::singleline(&mut spec.description)
-                        .desired_width(280.0)
-                        .margin(egui::Margin::symmetric(10, 8)),
-                );
-            });
-            theme::divider(ui);
-            // Commands are long, so the field gets its own full-width line under the title.
-            theme::setting_row(ui, &p, "Command", "What to run: a shell command, or pick a script.", |ui| {
-                if theme::action_button(ui, &p, icon::FOLDER, "Browse", false).clicked() {
-                    browse = true;
-                }
-            });
-            ui.add_space(4.0);
-            ui.add(
-                egui::TextEdit::singleline(&mut spec.command)
-                    .desired_width(f32::INFINITY)
-                    .hint_text("command or script")
-                    .margin(egui::Margin::symmetric(10, 8)),
-            );
-            ui.add_space(4.0);
-        });
-        ui.add_space(8.0);
-
-        // Schedule
-        theme::card(ui, &p, |ui| {
-            theme::section_header(ui, &p, icon::SCHEDULE, "Schedule");
-            theme::setting_row(ui, &p, "Repeat", "How often it runs.", |ui| {
-                egui::ComboBox::from_id_salt("kind")
-                    .selected_text(spec.kind.label())
-                    .width(220.0)
-                    .show_ui(ui, |ui| {
-                        for k in Kind::ALL {
-                            ui.selectable_value(&mut spec.kind, k, k.label());
-                        }
-                    });
-            });
-            theme::divider(ui);
-            theme::setting_row(ui, &p, "When", "The time or interval for the choice above.", |ui| {
-                // This row lays out right-to-left, so widgets are added last-to-first.
-                match spec.kind {
-                    Kind::Minutes => {
-                        ui.label("minutes");
-                        ui.add(egui::DragValue::new(&mut spec.interval).range(1..=59));
-                        ui.label("every");
-                    }
-                    Kind::Hours => {
-                        ui.add(egui::DragValue::new(&mut spec.minute).range(0..=59));
-                        ui.label("hours, at minute");
-                        ui.add(egui::DragValue::new(&mut spec.interval).range(1..=23));
-                        ui.label("every");
-                    }
-                    Kind::Daily | Kind::Weekly | Kind::Monthly => {
-                        ui.add(
-                            egui::DragValue::new(&mut spec.minute)
-                                .range(0..=59)
-                                .custom_formatter(|n, _| format!("{:02}", n as u32)),
-                        );
-                        ui.label(":");
-                        ui.add(
-                            egui::DragValue::new(&mut spec.hour)
-                                .range(0..=23)
-                                .custom_formatter(|n, _| format!("{:02}", n as u32)),
-                        );
-                        ui.label("at");
-                        if spec.kind == Kind::Monthly {
-                            ui.add(egui::DragValue::new(&mut spec.day).range(1..=31));
-                            ui.label("day");
-                        }
-                        if spec.kind == Kind::Weekly {
-                            egui::ComboBox::from_id_salt("weekday")
-                                .selected_text(WEEKDAYS[spec.weekday % 7])
-                                .show_ui(ui, |ui| {
-                                    for (i, d) in WEEKDAYS.iter().enumerate() {
-                                        ui.selectable_value(&mut spec.weekday, i, *d);
-                                    }
-                                });
-                        }
-                    }
-                    Kind::Custom => {
-                        ui.add(
-                            egui::TextEdit::singleline(&mut spec.custom)
-                                .desired_width(240.0)
-                                .hint_text("e.g. Mon..Fri *-*-* 08:30:00")
-                                .margin(egui::Margin::symmetric(10, 8)),
-                        );
-                    }
-                }
-            });
-            theme::divider(ui);
-            theme::setting_row(
-                ui,
-                &p,
-                "Catch up after being off",
-                "If the PC was off at the scheduled time, run the job when it next starts.",
-                |ui| {
-                    if theme::toggle(ui, &p, spec.persistent).clicked() {
-                        spec.persistent = !spec.persistent;
-                    }
-                },
-            );
-
-            let calendar = spec.on_calendar();
-            if self.preview.0 != calendar {
-                let result = if calendar.is_empty() {
-                    Ok(String::new())
-                } else {
-                    systemd::preview_calendar(&calendar)
-                };
-                self.preview = (calendar.clone(), result);
-            }
-            theme::divider(ui);
-            ui.label(RichText::new(spec.describe()).strong().color(p.on_surface));
-            match &self.preview.1 {
-                Ok(next) => {
-                    ui.label(RichText::new(next).small().color(p.on_surface_variant));
-                }
-                Err(e) => {
-                    ui.colored_label(p.error, e);
-                }
-            }
-            ui.label(
-                RichText::new(format!("OnCalendar={calendar}"))
-                    .small()
-                    .weak()
-                    .color(p.on_surface_variant),
-            );
-            for note in systemd::warnings(spec) {
-                ui.colored_label(egui::Color32::from_rgb(230, 180, 60), note);
-            }
-        });
-        ui.add_space(8.0);
-
-        // Service options
-        collapsible_card(ui, &p, "Service options", existing, |ui| {
-            theme::setting_row(ui, &p, "Type", "Run once and finish suits scripts. Keep running suits long-lived programs.", |ui| {
-                egui::ComboBox::from_id_salt("service_type")
-                    .selected_text(spec.service_type.label())
-                    .width(220.0)
-                    .show_ui(ui, |ui| {
-                        for t in ServiceType::ALL {
-                            ui.selectable_value(&mut spec.service_type, t, t.label());
-                        }
-                    });
-            });
-            theme::divider(ui);
-            theme::setting_row(ui, &p, "Working directory", "The folder the command starts in. Optional.", |ui| {
-                ui.add(
-                    egui::TextEdit::singleline(&mut spec.workdir)
-                        .desired_width(280.0)
-                        .hint_text("e.g. ~/Projects")
-                        .margin(egui::Margin::symmetric(10, 8)),
-                );
-            });
-            theme::divider(ui);
-            theme::setting_row(ui, &p, "Environment", "Extra variables for the command, one KEY=value per line.", |ui| {
-                ui.add(
-                    egui::TextEdit::multiline(&mut spec.env)
-                        .desired_rows(2)
-                        .desired_width(280.0)
-                        .margin(egui::Margin::symmetric(10, 8)),
-                );
-            });
-            theme::divider(ui);
-            theme::setting_row(ui, &p, "Timeout", "Stop the job if it runs longer than this. 0 means no limit.", |ui| {
-                ui.add(egui::DragValue::new(&mut spec.timeout).range(0..=86400).suffix(" s"));
-            });
-            theme::divider(ui);
-            theme::setting_row(ui, &p, "Retry on failure", "Run the job again after a delay if it fails.", |ui| {
-                if spec.restart != Restart::No {
-                    ui.add(egui::DragValue::new(&mut spec.restart_delay).range(1..=3600).suffix(" s"));
-                    ui.label("after");
-                }
-                egui::ComboBox::from_id_salt("restart")
-                    .selected_text(spec.restart.label())
-                    .width(120.0)
-                    .show_ui(ui, |ui| {
-                        for r in Restart::ALL {
-                            ui.selectable_value(&mut spec.restart, r, r.label());
-                        }
-                    });
-            });
-            theme::divider(ui);
-            theme::setting_row(ui, &p, "Low priority", "Lets other programs use the CPU and disk first.", |ui| {
-                if theme::toggle(ui, &p, spec.low_priority).clicked() {
-                    spec.low_priority = !spec.low_priority;
-                }
-            });
-        });
-        ui.add_space(8.0);
-
-        // Timer options
-        collapsible_card(ui, &p, "Timer options", existing, |ui| {
-            theme::setting_row(ui, &p, "Random delay", "Spread start times: wait up to this long after the scheduled time. 0 means none.", |ui| {
-                ui.add(egui::DragValue::new(&mut spec.random_delay).range(0..=86400).suffix(" s"));
-            });
-            theme::divider(ui);
-            theme::setting_row(ui, &p, "Also run after boot", "Run this many minutes after the PC starts. 0 means off.", |ui| {
-                ui.add(egui::DragValue::new(&mut spec.on_boot).range(0..=1440).suffix(" min"));
-            });
-        });
-        ui.add_space(8.0);
-
-        // Extra settings
-        collapsible_card(ui, &p, "Extra settings (advanced)", existing, |ui| {
-            ui.label(
-                RichText::new("Raw systemd lines, one per line, added after the options above.")
-                    .small()
-                    .color(p.on_surface_variant),
-            );
-            for (title, hint, text) in [
-                ("[Unit] (applies to the service)", "e.g. Documentation=https://...", &mut spec.extra_unit),
-                ("[Service]", "e.g. ProtectHome=read-only", &mut spec.extra_service),
-                ("[Timer]", "e.g. AccuracySec=1min", &mut spec.extra_timer),
-            ] {
-                ui.add_space(6.0);
-                ui.label(RichText::new(title).color(p.on_surface));
-                ui.add(
-                    egui::TextEdit::multiline(text)
-                        .font(egui::TextStyle::Monospace)
-                        .desired_rows(2)
-                        .desired_width(f32::INFINITY)
-                        .hint_text(hint)
-                        .margin(egui::Margin::symmetric(10, 8)),
-                );
-            }
-        });
-        ui.add_space(16.0);
-
-        ui.horizontal(|ui| {
-            if theme::primary_button(ui, &p, icon::CHECK, "Save").clicked() {
-                save = true;
-            }
-            if theme::action_button(ui, &p, icon::CLOSE, "Cancel", false).clicked() {
-                cancel = true;
-            }
-        });
-        ui.add_space(24.0);
-
-        if let Some(i) = preset {
-            if let View::Edit { spec, .. } = &mut self.view {
-                systemd::apply_preset(spec, i);
-                self.status = format!("Applied preset: {}", systemd::PRESETS[i]);
-            }
-        }
-
-        if browse && self.picker.is_none() {
-            let (tx, rx) = mpsc::channel();
-            let ctx = ui.ctx().clone();
-            std::thread::spawn(move || {
-                let _ = tx.send(pick_file());
-                ctx.request_repaint();
-            });
-            self.picker = Some(rx);
-        }
-
-        if save {
-            let (spec_copy, existing) = match &self.view {
-                View::Edit { spec, existing } => (spec.clone(), *existing),
-                _ => return,
-            };
-            match systemd::save(&spec_copy, existing) {
-                Ok(msg) => {
-                    self.view = View::List;
-                    self.report(Ok(msg));
-                }
-                Err(e) => self.status = format!("Error: {e}"),
-            }
-        } else if cancel {
-            self.view = View::List;
-        }
-    }
-
-    fn delete_dialog(&mut self, ctx: &egui::Context) {
-        let Some(name) = self.confirm_delete.clone() else { return };
-        let p = self.palette;
-        let mut close = false;
-        egui::Window::new("Delete timer?")
-            .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .show(ctx, |ui| {
-                ui.label(format!("Delete {name} and its service? This cannot be undone."));
-                if !systemd::is_managed(&name) {
-                    ui.label(
-                        RichText::new("Not made by this app: its unit files in ~/.config/systemd/user will be removed.")
-                            .small()
-                            .color(p.on_surface_variant),
-                    );
-                }
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    if theme::action_button(ui, &p, icon::DELETE, "Delete", true).clicked() {
-                        let r = systemd::delete(&name);
-                        self.report(r);
-                        close = true;
-                    }
-                    if theme::action_button(ui, &p, icon::CLOSE, "Cancel", false).clicked() {
-                        close = true;
-                    }
-                });
-            });
-        if close {
-            self.confirm_delete = None;
-        }
-    }
-}
-
-/// A card whose body folds away under its title.
-fn collapsible_card(ui: &mut egui::Ui, p: &Palette, title: &str, open: bool, body: impl FnOnce(&mut egui::Ui)) {
-    theme::card(ui, p, |ui| {
-        egui::CollapsingHeader::new(RichText::new(title).text_style(egui::TextStyle::Heading))
-            .default_open(open)
-            .show(ui, |ui| {
-                ui.add_space(4.0);
-                body(ui);
-            });
+    let state = Rc::new(State {
+        window: window.clone(),
+        split,
+        page,
+        stack,
+        nav: nav.clone(),
+        list,
+        toasts,
+        reload: reload.clone(),
+        save: save.clone(),
+        cancel: cancel.clone(),
+        show_all: Cell::new(start == ALL),
+        search: RefCell::new(String::new()),
+        expanded: RefCell::new(HashSet::new()),
+        form: RefCell::new(None),
+        running: Cell::new(false),
     });
+
+    // Activation, not selection: GTK also selects rows on its own, e.g. when the list gets focus.
+    let s = state.clone();
+    nav.connect_row_activated(move |_, row| {
+        match row.index() {
+            NEW => {
+                // Clicking it again while filling in a new timer keeps what was typed.
+                if !matches!(&*s.form.borrow(), Some((_, false))) {
+                    open_form(&s, Spec::default(), false, 0);
+                }
+            }
+            index => show_list(&s, index == ALL),
+        }
+        s.split.set_show_content(true);
+    });
+    let s = state.clone();
+    search.connect_search_changed(move |entry| {
+        *s.search.borrow_mut() = entry.text().to_string();
+        if s.form.borrow().is_some() {
+            show_list(&s, s.show_all.get());
+        } else {
+            refresh(&s);
+        }
+    });
+    let s = state.clone();
+    reload.connect_clicked(move |_| {
+        systemd::reload();
+        refresh(&s);
+    });
+    let s = state.clone();
+    cancel.connect_clicked(move |_| show_list(&s, s.show_all.get()));
+    let s = state.clone();
+    save.connect_clicked(move |_| {
+        let Some((spec, existing)) = s.form.borrow().clone() else { return };
+        let spec = spec.borrow().clone();
+        match systemd::save(&spec, existing) {
+            Ok(msg) => {
+                toast(&s, &msg);
+                show_list(&s, s.show_all.get());
+            }
+            Err(e) => alert(&s, "Couldn't save the timer", &e),
+        }
+    });
+    // Coming back to the window, e.g. from a text editor, shows any changes.
+    let s = state.clone();
+    window.connect_is_active_notify(move |w| {
+        if w.is_active() && s.form.borrow().is_none() {
+            refresh(&s);
+        }
+    });
+
+    match start {
+        NEW => open_form(&state, Spec::default(), false, 0),
+        _ => show_list(&state, start == ALL),
+    }
+    window.present();
 }
 
-fn main() -> eframe::Result {
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1040.0, 700.0])
-            .with_min_inner_size([760.0, 520.0])
-            .with_decorations(theme::use_window_decorations())
-            .with_transparent(true)
-            .with_app_id("timer-manager"),
-        ..Default::default()
+fn toast(state: &State, text: &str) {
+    state.toasts.add_toast(adw::Toast::new(text));
+}
+
+fn alert(state: &State, heading: &str, body: &str) {
+    let dialog = adw::AlertDialog::new(Some(heading), Some(body));
+    dialog.add_response("close", "Close");
+    dialog.present(Some(&state.window));
+}
+
+/// Shows the outcome and rebuilds the list once the current signal handler is done.
+fn report(state: &Rc<State>, result: Result<String, String>) {
+    match result {
+        Ok(msg) => toast(state, &msg),
+        Err(e) => alert(state, "Something went wrong", &e),
+    }
+    let s = state.clone();
+    glib::idle_add_local_once(move || refresh(&s));
+}
+
+fn show_list(state: &Rc<State>, all: bool) {
+    state.show_all.set(all);
+    state.form.replace(None);
+    state.stack.set_visible_child_name("list");
+    if let Some(form) = state.stack.child_by_name("form") {
+        state.stack.remove(&form);
+    }
+    state.page.set_title(if all { "All timers" } else { "My timers" });
+    state.reload.set_visible(true);
+    state.save.set_visible(false);
+    state.cancel.set_visible(false);
+    state.nav.select_row(state.nav.row_at_index(if all { ALL } else { MINE }).as_ref());
+    refresh(state);
+}
+
+/// Shows the form for a new timer, or for editing one made by this app.
+fn open_form(state: &Rc<State>, spec: Spec, existing: bool, preset: u32) {
+    let s = state.clone();
+    let form = form::build(spec, existing, preset, move |spec, preset| {
+        // The form being replaced is still handling the signal, so swap it afterwards.
+        let s = s.clone();
+        glib::idle_add_local_once(move || open_form(&s, spec, false, preset));
+    });
+    if let Some(old) = state.stack.child_by_name("form") {
+        state.stack.remove(&old);
+    }
+    state.stack.add_named(&form.page, Some("form"));
+    state.stack.set_visible_child_name("form");
+    state.form.replace(Some((form.spec, existing)));
+    state.page.set_title(if existing { "Edit timer" } else { "New timer" });
+    state.reload.set_visible(false);
+    state.save.set_visible(true);
+    state.cancel.set_visible(true);
+    if !existing {
+        state.nav.select_row(state.nav.row_at_index(NEW).as_ref());
+    }
+    state.split.set_show_content(true);
+}
+
+fn refresh(state: &Rc<State>) {
+    state.list.remove_all();
+    let needle = state.search.borrow().trim().to_lowercase();
+    let mut shown = 0;
+    for t in systemd::list_timers(state.show_all.get()) {
+        if !needle.is_empty()
+            && !t.name.to_lowercase().contains(&needle)
+            && !t.command.to_lowercase().contains(&needle)
+        {
+            continue;
+        }
+        state.list.append(&timer_row(state, &t));
+        shown += 1;
+    }
+    if shown == 0 {
+        state.list.append(&adw::ActionRow::builder().title("No timers found").build());
+    }
+}
+
+fn timer_row(state: &Rc<State>, t: &TimerInfo) -> adw::ExpanderRow {
+    let row = adw::ExpanderRow::builder()
+        .title(glib::markup_escape_text(&t.name).as_str())
+        .subtitle(glib::markup_escape_text(&t.summary).as_str())
+        .expanded(state.expanded.borrow().contains(&t.name))
+        .build();
+    let name = t.name.clone();
+    let s = state.clone();
+    row.connect_expanded_notify(move |row| {
+        let mut open = s.expanded.borrow_mut();
+        if row.is_expanded() {
+            open.insert(name.clone());
+        } else {
+            open.remove(&name);
+        }
+    });
+
+    if !t.deletable {
+        row.add_suffix(
+            &gtk::Label::builder()
+                .label("System")
+                .css_classes(["caption", "dim-label"])
+                .build(),
+        );
+    }
+    let switch = gtk::Switch::builder()
+        .active(t.enabled())
+        .valign(gtk::Align::Center)
+        .tooltip_text(if t.enabled() { "Enabled" } else { "Disabled" })
+        .build();
+    let (s, name) = (state.clone(), t.name.clone());
+    switch.connect_active_notify(move |sw| report(&s, systemd::set_enabled(&name, sw.is_active())));
+    row.add_suffix(&switch);
+
+    let command = if t.command.is_empty() { "(unknown)" } else { &t.command };
+    for (title, value) in [
+        ("Command", command.to_string()),
+        ("Next run", format_time(t.next)),
+        ("Last run", format_time(t.last)),
+    ] {
+        row.add_row(
+            &adw::ActionRow::builder()
+                .title(title)
+                .subtitle(glib::markup_escape_text(&value).as_str())
+                .subtitle_selectable(true)
+                .css_classes(["property"])
+                .build(),
+        );
+    }
+
+    let buttons = gtk::Box::builder()
+        .spacing(8)
+        .margin_top(10)
+        .margin_bottom(10)
+        .margin_start(12)
+        .margin_end(12)
+        .build();
+    let button = |label: &str, style: Option<&str>| {
+        let b = gtk::Button::builder().label(label).css_classes(["pill"]).build();
+        if let Some(style) = style {
+            b.add_css_class(style);
+        }
+        buttons.append(&b);
+        b
     };
-    eframe::run_native(
-        "Timer Manager",
-        options,
-        Box::new(|cc| {
-            theme::install_fonts(&cc.egui_ctx);
-            theme::apply_text_styles(&cc.egui_ctx);
-            let palette = theme::load_palette();
-            theme::apply_palette(&cc.egui_ctx, &palette);
-            cc.egui_ctx.set_zoom_factor(1.1);
-            Ok(Box::new(App::new(palette)))
-        }),
-    )
+
+    let run = button("Run now", Some("suggested-action"));
+    let (s, name) = (state.clone(), t.name.clone());
+    run.connect_clicked(move |_| {
+        if s.running.get() {
+            toast(&s, "A job is already running");
+            return;
+        }
+        s.running.set(true);
+        toast(&s, &format!("Running {name}…"));
+        let (s, name) = (s.clone(), name.clone());
+        glib::spawn_future_local(async move {
+            let job = name.clone();
+            let out = gio::spawn_blocking(move || systemd::run_now(&job)).await.unwrap_or_default();
+            s.running.set(false);
+            show_text(&s, &format!("Output: {name}"), &out);
+            refresh(&s);
+        });
+    });
+
+    let logs = button("Logs", None);
+    let (s, name) = (state.clone(), t.name.clone());
+    logs.connect_clicked(move |_| show_text(&s, &format!("Logs: {name}"), &systemd::logs(&name)));
+
+    // Only timers with a unit file in the user directory can be edited or deleted.
+    if t.deletable {
+        let edit = button("Edit", None);
+        let (s, name) = (state.clone(), t.name.clone());
+        edit.connect_clicked(move |_| match Spec::load(&name) {
+            Some(spec) => open_form(&s, spec, true, 0),
+            None => report(&s, systemd::open_in_editor(&name)),
+        });
+
+        let delete = button("Delete", Some("destructive-action"));
+        let (s, name) = (state.clone(), t.name.clone());
+        delete.connect_clicked(move |_| confirm_delete(&s, &name));
+    }
+
+    row.add_row(&gtk::ListBoxRow::builder().activatable(false).child(&buttons).build());
+    row
+}
+
+fn show_text(state: &State, title: &str, text: &str) {
+    let view = gtk::TextView::builder()
+        .editable(false)
+        .monospace(true)
+        .wrap_mode(gtk::WrapMode::WordChar)
+        .top_margin(12)
+        .bottom_margin(12)
+        .left_margin(12)
+        .right_margin(12)
+        .build();
+    view.buffer().set_text(text);
+    let body = adw::ToolbarView::new();
+    body.add_top_bar(&adw::HeaderBar::new());
+    body.set_content(Some(&gtk::ScrolledWindow::builder().child(&view).vexpand(true).build()));
+    let dialog = adw::Dialog::builder()
+        .title(title)
+        .content_width(760)
+        .content_height(500)
+        .child(&body)
+        .build();
+    dialog.present(Some(&state.window));
+}
+
+fn confirm_delete(state: &Rc<State>, name: &str) {
+    let mut body = format!("{name} and its service will be removed. This cannot be undone.");
+    if !systemd::is_managed(name) {
+        body.push_str("\n\nIt wasn't made by this app: its unit files in ~/.config/systemd/user will be deleted.");
+    }
+    let dialog = adw::AlertDialog::new(Some("Delete timer?"), Some(&body));
+    dialog.add_responses(&[("cancel", "Cancel"), ("delete", "Delete")]);
+    dialog.set_response_appearance("delete", adw::ResponseAppearance::Destructive);
+    dialog.set_default_response(Some("cancel"));
+    dialog.set_close_response("cancel");
+    let (s, name) = (state.clone(), name.to_string());
+    dialog.connect_response(None, move |_, response| {
+        if response == "delete" {
+            report(&s, systemd::delete(&name));
+        }
+    });
+    dialog.present(Some(&state.window));
 }

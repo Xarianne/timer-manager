@@ -11,9 +11,9 @@ Version:        0.3.2
 Release:        1%{?dist}
 Summary:        Create and manage systemd user timers
 
-# GPL-3.0-only is the app itself. The rest covers the Rust crates and fonts
-# compiled into the binary; for dual-licensed crates one option is listed.
-License:        GPL-3.0-only AND Apache-2.0 AND BSL-1.0 AND ISC AND MIT AND OFL-1.1 AND Ubuntu-font-1.0 AND Unicode-3.0 AND Zlib
+# GPL-3.0-only is the app itself. The rest covers the Rust crates compiled into
+# the binary; for dual-licensed crates one option is listed.
+License:        GPL-3.0-only AND MIT AND Unicode-3.0
 URL:            https://github.com/Xarianne/timer-manager
 Source0:        %{name}-%{version}.tar.gz
 Source1:        %{name}-%{version}-vendor.tar.gz
@@ -22,24 +22,11 @@ BuildRequires:  cargo
 BuildRequires:  rust >= 1.95
 BuildRequires:  gcc
 BuildRequires:  desktop-file-utils
+BuildRequires:  pkgconfig(gtk4) >= 4.12
+BuildRequires:  pkgconfig(libadwaita-1) >= 1.6
 
+# GTK and libadwaita are linked normally, so rpm adds those dependencies itself.
 Requires:       systemd
-Requires:       fontconfig
-# The app loads its graphics libraries at runtime, so rpm cannot detect them.
-Requires:       libwayland-client
-Requires:       libwayland-egl
-Requires:       libxkbcommon
-Requires:       libglvnd-egl
-Requires:       libglvnd-glx
-# X11 fallback
-Recommends:     libX11
-Recommends:     libX11-xcb
-Recommends:     libxcb
-Recommends:     libXcursor
-Recommends:     libXi
-Recommends:     libXrender
-Recommends:     libxkbcommon-x11
-Recommends:     (kdialog or zenity)
 
 %description
 Timer Manager is a small desktop app for creating and managing systemd user
@@ -68,10 +55,10 @@ cargo build --release --locked --offline
 
 %install
 install -Dpm755 target/release/timer-manager %{buildroot}%{_bindir}/timer-manager
-install -Dpm644 packaging/timer-manager.desktop %{buildroot}%{_datadir}/applications/timer-manager.desktop
+install -Dpm644 packaging/io.github.xarianne.TimerManager.desktop %{buildroot}%{_datadir}/applications/io.github.xarianne.TimerManager.desktop
 
 %check
-desktop-file-validate %{buildroot}%{_datadir}/applications/timer-manager.desktop
+desktop-file-validate %{buildroot}%{_datadir}/applications/io.github.xarianne.TimerManager.desktop
 # The unit tests create and delete real timers in the user's systemd instance,
 # which a build chroot does not have, so they are not run here.
 
@@ -79,7 +66,7 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/timer-manager.desktop
 %license LICENSE
 %doc README.md
 %{_bindir}/timer-manager
-%{_datadir}/applications/timer-manager.desktop
+%{_datadir}/applications/io.github.xarianne.TimerManager.desktop
 
 %changelog
 * Sat Oct 24 2026 xariann <xariann.widely103@passmail.com> - 0.3.2-1

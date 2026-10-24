@@ -5,4 +5,3 @@ Comment=Create and manage systemd user timers
 Exec=timer-manager
 Icon=preferences-system-time
 Categories=System;
-StartupWMClass=timer-manager

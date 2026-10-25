@@ -1,6 +1,6 @@
 [package]
 name = "timer-manager"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2024"
 description = "Create and manage systemd user timers from a small desktop app"
 license = "GPL-3.0-only"

@@ -7,7 +7,7 @@
 %global debug_package %{nil}
 
 Name:           timer-manager
-Version:        0.4.0
+Version:        0.4.1
 Release:        1%{?dist}
 Summary:        Create and manage systemd user timers
 
@@ -69,6 +69,9 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/io.github.xarianne.Ti
 %{_datadir}/applications/io.github.xarianne.TimerManager.desktop
 
 %changelog
+* Sun Oct 25 2026 xariann <xariann.widely103@passmail.com> - 0.4.1-1
+- Show the System label before the switch so switches line up across rows
+
 * Sun Oct 25 2026 xariann <xariann.widely103@passmail.com> - 0.4.0-1
 - Rebuild the interface with GTK 4 and libadwaita, following the system's dark mode, accent color and icons
 - Pick scripts with the desktop's own file chooser; kdialog or zenity are no longer needed

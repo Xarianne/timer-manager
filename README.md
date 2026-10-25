@@ -2,8 +2,7 @@
 
 A small desktop app for creating and managing **systemd user timers** without
 writing unit files by hand. It is a Rust app built with
-[GTK 4](https://gtk.org) and [libadwaita](https://gnome.pages.gitlab.gnome.org/libadwaita/),
-so it follows your system's dark mode, accent color and icons.
+[GTK 4](https://gtk.org) and [libadwaita](https://gnome.pages.gitlab.gnome.org/libadwaita/).
 
 Timers made in the app are ordinary `.service` and `.timer` files in
 `~/.config/systemd/user/`, so systemd runs them and they keep working if you

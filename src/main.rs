@@ -335,14 +335,7 @@ fn timer_row(state: &Rc<State>, t: &TimerInfo) -> adw::ExpanderRow {
         }
     });
 
-    if !t.deletable {
-        row.add_suffix(
-            &gtk::Label::builder()
-                .label("System")
-                .css_classes(["caption", "dim-label"])
-                .build(),
-        );
-    }
+    // ExpanderRow prepends suffixes, so the switch goes in first to end up rightmost.
     let switch = gtk::Switch::builder()
         .active(t.enabled())
         .valign(gtk::Align::Center)
@@ -351,6 +344,14 @@ fn timer_row(state: &Rc<State>, t: &TimerInfo) -> adw::ExpanderRow {
     let (s, name) = (state.clone(), t.name.clone());
     switch.connect_active_notify(move |sw| report(&s, systemd::set_enabled(&name, sw.is_active())));
     row.add_suffix(&switch);
+    if !t.deletable {
+        row.add_suffix(
+            &gtk::Label::builder()
+                .label("System")
+                .css_classes(["caption", "dim-label"])
+                .build(),
+        );
+    }
 
     let command = if t.command.is_empty() { "(unknown)" } else { &t.command };
     for (title, value) in [

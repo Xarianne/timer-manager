@@ -76,19 +76,9 @@ timer-manager --all    # All user timers, including ones shipped with the system
 timer-manager --new    # Open directly on the New timer form
 ```
 
-## Tests
-
-```sh
-cargo test --release
-```
-
-The backend tests create, run and delete short-lived timers named `tm-selftest*`
-in your real user systemd, so they need a working `systemctl --user`. They clean
-up after themselves.
-
 ## Status
 
-Developed and used on Fedora with Hyprland. The backend is covered by tests; the
+Developed and used on Fedora. The
 interface has been checked by hand on that setup only.
 
 ## License

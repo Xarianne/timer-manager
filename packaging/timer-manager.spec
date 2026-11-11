@@ -7,7 +7,7 @@
 %global debug_package %{nil}
 
 Name:           timer-manager
-Version:        0.4.1
+Version:        1.0.0
 Release:        1%{?dist}
 Summary:        Create and manage systemd user timers
 
@@ -69,6 +69,9 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/io.github.xarianne.Ti
 %{_datadir}/applications/io.github.xarianne.TimerManager.desktop
 
 %changelog
+* Wed Nov 11 2026 xariann <xariann.widely103@passmail.com> - 1.0.0-1
+- First full release, supported on Fedora 44 and 45
+
 * Sun Oct 25 2026 xariann <xariann.widely103@passmail.com> - 0.4.1-1
 - Show the System label before the switch so switches line up across rows
 
